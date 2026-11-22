@@ -1,4 +1,4 @@
-// Cued — Personalized Mobile App Controller (Anti-Decision-Fatigue Engine)
+// Cued — Personalized Mobile App Controller v2 (Anti-Decision-Fatigue Engine for Nuvio)
 
 (function () {
   const E = window.CuedEngine;
@@ -10,18 +10,22 @@
     context: {
       format: 'any',      // 'any' | 'movie' | 'series' | 'anime'
       origin: 'any',      // 'any' | 'indian' | 'western' | 'intl'
+      timeBudget: 'any',  // 'any' | 'short' | 'quick'
       mood: 'any'
     },
     watchlistMode: false,
     sessionSkipped: [],
     sessionCandidates: [],
+    sessionPool: [],
     shotIndex: 0,
     currentPick: null,
     relaxedNote: null,
     shootoutPair: [],
     lockedPick: null,
-    libTab: 'watchlist',
-    calibSkipped: []
+    libTab: 'watchlist', // 'watchlist' | 'watched' | 'history'
+    calibSkipped: [],
+    isPicking: false,
+    renderToken: 0
   };
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
@@ -61,31 +65,52 @@
       .replace(/"/g, '&quot;');
   }
 
+  function getResolvedWatchlist() {
+    return (state.profile.watchlist || []).map((id) => E.getTitleById(id)).filter(Boolean);
+  }
+
+  function removeFromSessionCandidates(titleId) {
+    state.sessionCandidates = state.sessionCandidates.filter((c) => c.title.id !== titleId);
+  }
+
   let toastTimer = null;
-  function showToast(msg) {
+  function showToast(msg, durationMs = 2400) {
     const el = document.getElementById('toast');
     el.textContent = msg;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    toastTimer = setTimeout(() => el.classList.remove('show'), durationMs);
   }
 
+  let lastFocusedEl = null;
   function openSheet(html) {
+    lastFocusedEl = document.activeElement;
     const backdrop = document.getElementById('sheet-backdrop');
     const content = document.getElementById('sheet-content');
     content.innerHTML = `<div class="sheet-handle"></div>${html}`;
     backdrop.classList.add('open');
     backdrop.setAttribute('aria-hidden', 'false');
+    const firstFocusable = content.querySelector('input, textarea, button');
+    if (firstFocusable) setTimeout(() => firstFocusable.focus(), 40);
   }
 
   function closeSheet() {
     const backdrop = document.getElementById('sheet-backdrop');
+    if (!backdrop.classList.contains('open')) return;
     backdrop.classList.remove('open');
     backdrop.setAttribute('aria-hidden', 'true');
+    if (lastFocusedEl && typeof lastFocusedEl.focus === 'function' && document.contains(lastFocusedEl)) {
+      lastFocusedEl.focus();
+    }
+    lastFocusedEl = null;
   }
 
   document.getElementById('sheet-backdrop').addEventListener('click', (e) => {
     if (e.target.id === 'sheet-backdrop') closeSheet();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSheet();
   });
 
   function updateTopbar() {
@@ -96,7 +121,10 @@
   function switchTab(tab) {
     state.tab = tab;
     document.querySelectorAll('.tab-btn').forEach((b) => {
-      b.classList.toggle('active', b.dataset.tab === tab);
+      const isActive = b.dataset.tab === tab;
+      b.classList.toggle('active', isActive);
+      if (isActive) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
     });
     document.querySelectorAll('.view').forEach((v) => {
       v.classList.toggle('active', v.id === `view-${tab}`);
@@ -111,8 +139,77 @@
   document.getElementById('dna-pill-btn').addEventListener('click', () => switchTab('taste'));
   document.getElementById('settings-btn').addEventListener('click', openSettingsSheet);
 
+  // Renders editorial SVG underneath so offline/failed poster photos fall back gracefully
+  function renderPosterBackdropHtml(t) {
+    return `
+      ${E.renderEditorialPosterSVG(t)}
+      ${t.posterUrl ? `<img src="${escapeHtml(t.posterUrl)}" alt="${escapeHtml(t.title)}" class="poster-photo" /><div class="poster-photo-scrim"></div>` : ''}
+    `;
+  }
+
+  function bindPosterFallback(frame) {
+    if (!frame) return;
+    const img = frame.querySelector('.poster-photo');
+    if (!img) return;
+    const removeBroken = () => {
+      const scrim = frame.querySelector('.poster-photo-scrim');
+      if (scrim) scrim.remove();
+      img.remove();
+    };
+    if (img.complete && img.naturalWidth === 0) {
+      removeBroken();
+      return;
+    }
+    img.addEventListener('error', removeBroken, { once: true });
+  }
+
+  function attachTmdbPoster(frameId, titleObj, token) {
+    const frame = document.getElementById(frameId);
+    bindPosterFallback(frame);
+    if (!state.profile.tmdbApiKey || titleObj.posterUrl || !frame) return;
+
+    E.fetchTmdbPoster(titleObj, state.profile.tmdbApiKey).then((url) => {
+      if (token !== state.renderToken) return;
+      const curFrame = document.getElementById(frameId);
+      if (!url || !curFrame) return;
+      if (curFrame.dataset.titleId && curFrame.dataset.titleId !== titleObj.id) return;
+      if (curFrame.querySelector('.poster-photo')) return;
+
+      titleObj.posterUrl = url;
+      const img = document.createElement('img');
+      img.alt = titleObj.title;
+      img.className = 'poster-photo';
+      const scrim = document.createElement('div');
+      scrim.className = 'poster-photo-scrim';
+      img.onerror = () => {
+        img.remove();
+        scrim.remove();
+      };
+      const topBar = curFrame.querySelector('.poster-top-bar');
+      curFrame.insertBefore(img, topBar || null);
+      curFrame.insertBefore(scrim, topBar || null);
+      img.src = url;
+    });
+  }
+
+  function setSetupBusy(isBusy, label) {
+    state.isPicking = isBusy;
+    const pickBtn = document.getElementById('btn-pick-now');
+    const liveBtn = document.getElementById('btn-live-web');
+    const surpriseBtn = document.getElementById('btn-surprise');
+    if (pickBtn) {
+      pickBtn.disabled = isBusy;
+      if (isBusy && label) {
+        pickBtn.innerHTML = `<span class="btn-spinner" aria-hidden="true"></span>${escapeHtml(label)}`;
+      }
+    }
+    if (liveBtn) liveBtn.disabled = isBusy;
+    if (surpriseBtn) surpriseBtn.disabled = isBusy;
+  }
+
   // ==================== TONIGHT VIEW ====================
   async function startPicking(watchlistOnly = false) {
+    if (state.isPicking) return;
     state.watchlistMode = watchlistOnly;
     state.sessionSkipped = [];
     state.sessionCandidates = [];
@@ -124,14 +221,17 @@
     let note = relaxedNote;
 
     if (!watchlistOnly && state.profile.tmdbApiKey && state.profile.tmdbApiKey.trim()) {
-      showToast('Ranking curated + live TMDB picks by Taste DNA...');
+      setSetupBusy(true, 'Finding your top match…');
       try {
         const live = await Promise.race([
           E.discoverLiveFromTmdb(state.profile, state.context, []),
-          new Promise((resolve) => setTimeout(() => resolve([]), 3500))
+          new Promise((resolve) => setTimeout(() => resolve([]), 3200))
         ]);
+        const tmdbErr = E.getLastTmdbError();
+        if (tmdbErr && (tmdbErr.code === 401 || tmdbErr.code === 403)) {
+          showToast(tmdbErr.message, 3400);
+        }
         if (live.length > 0) {
-          // If local had to relax region/mood, prefer exact live TMDB matches
           const baseLocal = relaxedNote ? [] : localScored;
           merged = [...baseLocal, ...live].sort((a, b) => b.rawScore - a.rawScore);
           note = relaxedNote
@@ -140,12 +240,15 @@
         }
       } catch {
         // Fall back silently to local catalog
+      } finally {
+        setSetupBusy(false);
       }
     }
 
     state.relaxedNote = note;
 
     if (merged.length === 0) {
+      if (state.tonightStep === 'setup') renderTonight();
       showToast(watchlistOnly ? 'Save a few picks first!' : 'No unseen titles left—check Library or Settings.');
       return;
     }
@@ -159,12 +262,23 @@
 
   function advanceNextPick(burnShot = true) {
     if (state.currentPick) {
-      state.sessionSkipped.push(state.currentPick.title.id);
+      const skippedId = state.currentPick.title.id;
+      if (!state.sessionSkipped.includes(skippedId)) {
+        state.sessionSkipped.push(skippedId);
+      }
+      // Remember "Not Tonight" soft skips so future sessions rotate fresh picks to #1
+      if (burnShot && !state.watchlistMode) {
+        E.recordSoftSkip(state.profile, skippedId);
+      }
     }
     if (burnShot) state.shotIndex += 1;
 
-    if (state.shotIndex >= 3 && state.sessionCandidates.length >= 2) {
-      state.shootoutPair = state.sessionCandidates.slice(0, 2);
+    // Never allow vetoed or already-rated titles into Sudden Death
+    const validCandidates = state.sessionCandidates.filter((c) => !state.profile.ratings[c.title.id]);
+
+    if (state.shotIndex >= 3 && validCandidates.length >= 2) {
+      const topTwo = [...validCandidates].sort((a, b) => (b.fitScore ?? b.rawScore) - (a.fitScore ?? a.rawScore));
+      state.shootoutPair = topTwo.slice(0, 2);
       state.tonightStep = 'shootout';
       renderTonight();
       return;
@@ -195,8 +309,9 @@
     state.relaxedNote = relaxedNote;
 
     if (scored.length === 0) {
-      if (state.sessionCandidates.length >= 2) {
-        state.shootoutPair = state.sessionCandidates.slice(0, 2);
+      const remainingValid = state.sessionCandidates.filter((c) => !state.profile.ratings[c.title.id]);
+      if (remainingValid.length >= 2) {
+        state.shootoutPair = remainingValid.slice(0, 2);
         state.tonightStep = 'shootout';
       } else {
         showToast('That’s every match—try a different mood or format.');
@@ -215,28 +330,59 @@
   }
 
   function lockInPick(scoredPick) {
+    if (scoredPick.title.isLiveTmdb) {
+      E.persistLiveTitle(scoredPick.title, state.profile);
+    }
     state.lockedPick = scoredPick;
     state.tonightStep = 'locked';
+    // Deduplicate consecutive history entry for the same title
+    state.profile.history = (state.profile.history || []).filter((h) => h.id !== scoredPick.title.id);
     state.profile.history.unshift({
       id: scoredPick.title.id,
       pickedAt: new Date().toISOString()
     });
-    state.profile.history = state.profile.history.slice(0, 30);
+    state.profile.history = state.profile.history.slice(0, 40);
+    if (state.profile.dismissedNudgeId === scoredPick.title.id) {
+      state.profile.dismissedNudgeId = '';
+    }
     E.saveProfile(state.profile);
     renderTonight();
   }
 
+  function getUnratedRecentTitle() {
+    const latest = state.profile.history && state.profile.history[0];
+    if (!latest || !latest.id) return null;
+    if (state.profile.ratings[latest.id]) return null;
+    if (state.profile.dismissedNudgeId === latest.id) return null;
+    return E.getTitleById(latest.id) || null;
+  }
+
   function renderTonight() {
     const root = document.getElementById('view-tonight');
+    const token = ++state.renderToken;
 
     if (state.tonightStep === 'setup') {
-      const wlCount = state.profile.watchlist.length;
+      const wlCount = getResolvedWatchlist().length;
       const showOrigin = state.context.format !== 'anime';
+      const recentUnrated = getUnratedRecentTitle();
 
       root.innerHTML = `
-        <p class="eyebrow">30-Second Decider · All Access</p>
+        <p class="eyebrow">30-Second Decider · Nuvio All Access</p>
         <h2 class="page-title">What’s the vibe tonight?</h2>
         <p class="page-sub">Calibrated to your taste—fast pacing, real payoffs, zero boring filler. Max 3 picks before Sudden Death.</p>
+
+        ${recentUnrated ? `
+          <div class="nudge-banner" id="recent-nudge">
+            <div class="nudge-text">
+              <span class="nudge-label">Last Nuvio pick</span>
+              <strong>${escapeHtml(recentUnrated.title)}</strong> — how was it?
+            </div>
+            <div class="nudge-actions">
+              <button class="mini-pill loved" id="btn-nudge-rate" type="button">Rate</button>
+              <button class="mini-pill" id="btn-nudge-dismiss" type="button" aria-label="Dismiss">✕</button>
+            </div>
+          </div>
+        ` : ''}
 
         <div class="control-group">
           <div class="control-label"><span>Format</span></div>
@@ -247,7 +393,7 @@
               ['series', 'Series'],
               ['anime', 'Anime']
             ].map(([val, lbl]) => `
-              <button class="seg-btn ${state.context.format === val ? 'active' : ''}" data-format="${val}" type="button">${lbl}</button>
+              <button class="seg-btn ${state.context.format === val ? 'active' : ''}" data-format="${val}" aria-pressed="${state.context.format === val}" type="button">${lbl}</button>
             `).join('')}
           </div>
         </div>
@@ -260,11 +406,27 @@
             </div>
             <div class="segmented" role="group" aria-label="Origin">
               ${window.CUED_ORIGINS.map((o) => `
-                <button class="seg-btn ${state.context.origin === o.id ? 'active' : ''}" data-origin="${o.id}" type="button">${o.label}</button>
+                <button class="seg-btn ${state.context.origin === o.id ? 'active' : ''}" data-origin="${o.id}" aria-pressed="${state.context.origin === o.id}" type="button">${o.label}</button>
               `).join('')}
             </div>
           </div>
         ` : ''}
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Time Budget</span>
+            <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink-dim)">Optional</span>
+          </div>
+          <div class="segmented" role="group" aria-label="Time Budget">
+            ${[
+              ['any', 'Any Length'],
+              ['short', 'Under 2h'],
+              ['quick', 'Quick Ep']
+            ].map(([val, lbl]) => `
+              <button class="seg-btn ${state.context.timeBudget === val ? 'active' : ''}" data-budget="${val}" aria-pressed="${state.context.timeBudget === val}" type="button">${lbl}</button>
+            `).join('')}
+          </div>
+        </div>
 
         <div class="control-group">
           <div class="control-label">
@@ -273,7 +435,7 @@
           </div>
           <div class="mood-grid">
             ${window.CUED_MOODS.map((m) => `
-              <button class="mood-card ${state.context.mood === m.id ? 'active' : ''}" data-mood="${m.id}" type="button">
+              <button class="mood-card ${state.context.mood === m.id ? 'active' : ''}" data-mood="${m.id}" aria-pressed="${state.context.mood === m.id}" type="button">
                 <div class="mood-top"><span class="mood-icon">${moodIcon(m.glyph)}</span></div>
                 <span class="mood-label">${m.label}</span>
                 <span class="mood-sub">${m.sub}</span>
@@ -298,6 +460,15 @@
         </div>
       `;
 
+      if (recentUnrated) {
+        document.getElementById('btn-nudge-rate').addEventListener('click', () => openSeenSheet(recentUnrated, false));
+        document.getElementById('btn-nudge-dismiss').addEventListener('click', () => {
+          state.profile.dismissedNudgeId = recentUnrated.id;
+          E.saveProfile(state.profile);
+          renderTonight();
+        });
+      }
+
       root.querySelectorAll('[data-format]').forEach((b) =>
         b.addEventListener('click', () => {
           state.context.format = b.dataset.format;
@@ -311,6 +482,12 @@
           renderTonight();
         })
       );
+      root.querySelectorAll('[data-budget]').forEach((b) =>
+        b.addEventListener('click', () => {
+          state.context.timeBudget = b.dataset.budget;
+          renderTonight();
+        })
+      );
       root.querySelectorAll('[data-mood]').forEach((b) =>
         b.addEventListener('click', () => {
           state.context.mood = state.context.mood === b.dataset.mood ? 'any' : b.dataset.mood;
@@ -319,34 +496,53 @@
       );
       document.getElementById('btn-pick-now').addEventListener('click', () => startPicking(false));
       document.getElementById('btn-surprise').addEventListener('click', () => {
-        state.context = { format: 'any', origin: 'any', mood: 'any' };
+        state.context = { format: 'any', origin: 'any', timeBudget: 'any', mood: 'any' };
         startPicking(false);
       });
       document.getElementById('btn-live-web').addEventListener('click', async () => {
+        if (state.isPicking) return;
         if (!state.profile.tmdbApiKey) {
           openSettingsSheet();
           showToast('Add a free TMDB key to search the live web');
           return;
         }
-        showToast('Searching live TMDB catalog...');
-        const live = await E.discoverLiveFromTmdb(state.profile, state.context, state.sessionSkipped);
-        if (!live.length) {
-          showToast('No live matches—using curated catalog');
-          startPicking(false);
-          return;
+        setSetupBusy(true, 'Searching live TMDB…');
+        try {
+          const live = await Promise.race([
+            E.discoverLiveFromTmdb(state.profile, state.context, state.sessionSkipped, { forceFresh: true }),
+            new Promise((resolve) => setTimeout(() => resolve([]), 4500))
+          ]);
+          const tmdbErr = E.getLastTmdbError();
+          if (tmdbErr && (tmdbErr.code === 401 || tmdbErr.code === 403)) {
+            setSetupBusy(false);
+            renderTonight();
+            showToast(tmdbErr.message, 3400);
+            return;
+          }
+          if (!live.length) {
+            setSetupBusy(false);
+            showToast('No live matches—using curated catalog');
+            startPicking(false);
+            return;
+          }
+          state.watchlistMode = false;
+          state.sessionSkipped = [];
+          state.shotIndex = 0;
+          state.relaxedNote = 'Live TMDB Picks · Ranked by your Taste DNA';
+          state.sessionPool = live;
+          state.currentPick = live[0];
+          state.sessionCandidates = [live[0]];
+          state.tonightStep = 'pick';
+          setSetupBusy(false);
+          renderTonight();
+        } catch {
+          setSetupBusy(false);
+          renderTonight();
+          showToast('Could not reach TMDB—try again or use Pick For Me');
         }
-        state.watchlistMode = false;
-        state.sessionSkipped = [];
-        state.shotIndex = 0;
-        state.relaxedNote = 'Live TMDB Picks · Ranked by your Taste DNA';
-        state.sessionPool = live;
-        state.currentPick = live[0];
-        state.sessionCandidates = [live[0]];
-        state.tonightStep = 'pick';
-        renderTonight();
       });
       document.getElementById('btn-from-wl').addEventListener('click', () => {
-        if (state.profile.watchlist.length === 0) return showToast('Save picks to your Watchlist first');
+        if (getResolvedWatchlist().length === 0) return showToast('Save picks to your Watchlist first');
         startPicking(true);
       });
       return;
@@ -367,9 +563,11 @@
           </button>
           <div class="shot-counter">
             <span>${state.watchlistMode ? 'Watchlist' : `Pick ${Math.min(state.shotIndex + 1, 3)} of 3`}</span>
-            <div class="shot-dots" aria-hidden="true">
-              ${[0, 1, 2].map((i) => `<span class="shot-dot ${i < state.shotIndex ? 'done' : i === state.shotIndex ? 'current' : ''}"></span>`).join('')}
-            </div>
+            ${state.watchlistMode ? '' : `
+              <div class="shot-dots" aria-hidden="true">
+                ${[0, 1, 2].map((i) => `<span class="shot-dot ${i < state.shotIndex ? 'done' : i === state.shotIndex ? 'current' : ''}"></span>`).join('')}
+              </div>
+            `}
           </div>
         </div>
 
@@ -379,8 +577,8 @@
           <div class="swipe-badge yes" id="badge-yes">Watch Tonight</div>
           <div class="swipe-badge no" id="badge-no">Not Tonight</div>
 
-          <div class="poster-frame" id="pick-poster-frame">
-            ${t.posterUrl ? `<img src="${escapeHtml(t.posterUrl)}" alt="${escapeHtml(t.title)}" class="poster-photo" /><div class="poster-photo-scrim"></div>` : E.renderEditorialPosterSVG(t)}
+          <div class="poster-frame" id="pick-poster-frame" data-title-id="${escapeHtml(t.id)}">
+            ${renderPosterBackdropHtml(t)}
             <div class="poster-top-bar">
               <span class="match-badge">${pick.matchPct}% Match</span>
               <span class="type-badge">${typeLabel(t)}${t.language !== 'EN' ? ` · ${t.language}` : ''}</span>
@@ -390,7 +588,7 @@
               <div class="pick-meta">
                 <span>${t.year}</span>
                 <span>·</span>
-                <span>${escapeHtml(t.runtimeLabel)}</span>
+                <span id="pick-runtime-label">${escapeHtml(t.runtimeLabel)}</span>
                 <span>·</span>
                 <span class="meta-rating">★ ${t.rating}</span>
               </div>
@@ -432,8 +630,8 @@
             </div>
 
             <div class="pick-credits" style="margin-top:12px">
-              <span>${escapeHtml(t.creator)}</span>
-              <span class="finish-clock">${escapeHtml(finishText)}</span>
+              <span id="pick-creator">${escapeHtml(t.creator)}</span>
+              <span class="finish-clock" id="pick-finish-clock">${escapeHtml(finishText)}</span>
             </div>
           </div>
         </article>
@@ -455,46 +653,29 @@
             </button>
             <button class="dock-btn" id="btn-not-tonight" type="button">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><polyline points="9 18 15 12 9 6"/></svg>
-              <span>${state.shotIndex === 2 ? 'Sudden Death' : 'Next Pick'}</span>
+              <span>${!state.watchlistMode && state.shotIndex === 2 ? 'Sudden Death' : 'Next Pick'}</span>
             </button>
           </div>
           <div class="swipe-hint">Swipe right to lock in · swipe left for next pick</div>
         </div>
       `;
 
-      function attachTmdbPoster(frameId, titleObj) {
-        if (!state.profile.tmdbApiKey || titleObj.posterUrl) return;
-        E.fetchTmdbPoster(titleObj, state.profile.tmdbApiKey).then((url) => {
-          const frame = document.getElementById(frameId);
-          if (!url || !frame) return;
-          titleObj.posterUrl = url;
-          const img = document.createElement('img');
-          img.alt = titleObj.title;
-          img.className = 'poster-photo';
-          img.onload = () => {
-            const svg = frame.querySelector('.poster-svg');
-            if (svg) svg.remove();
-          };
-          img.onerror = () => {
-            img.remove();
-            scrim.remove();
-          };
-          const scrim = document.createElement('div');
-          scrim.className = 'poster-photo-scrim';
-          const topBar = frame.querySelector('.poster-top-bar');
-          frame.insertBefore(img, topBar || null);
-          frame.insertBefore(scrim, topBar || null);
-          img.src = url;
-        });
-      }
+      attachTmdbPoster('pick-poster-frame', t, token);
 
-      attachTmdbPoster('pick-poster-frame', t);
-
-      if (t.isLiveTmdb && state.profile.tmdbApiKey) {
-        E.fetchTmdbReviewSnippet(t.tmdbId, t.type, state.profile.tmdbApiKey).then((rev) => {
-          const el = document.getElementById('public-says-text');
-          if (rev && el) {
-            el.textContent = `${t.publicSays} Top viewer review (${rev.author}): "${rev.snippet}"`;
+      // Lazily hydrate real runtime, director/creator, and top review for Live TMDB titles (guarded against stale races)
+      if (t.isLiveTmdb && state.profile.tmdbApiKey && !t.detailsHydrated) {
+        E.fetchTmdbTitleDetails(t, state.profile.tmdbApiKey, state.profile).then((res) => {
+          if (!res || token !== state.renderToken) return;
+          if (!state.currentPick || state.currentPick.title.id !== t.id) return;
+          const rtEl = document.getElementById('pick-runtime-label');
+          const crEl = document.getElementById('pick-creator');
+          const fcEl = document.getElementById('pick-finish-clock');
+          const psEl = document.getElementById('public-says-text');
+          if (rtEl) rtEl.textContent = t.runtimeLabel;
+          if (crEl) crEl.textContent = t.creator;
+          if (fcEl) fcEl.textContent = E.getFinishTimeText(t);
+          if (res.review && psEl) {
+            psEl.textContent = `${t.publicSays} Top viewer review (${res.review.author}): "${res.review.snippet}"`;
           }
         });
       }
@@ -507,12 +688,17 @@
       document.getElementById('btn-not-tonight').addEventListener('click', () => advanceNextPick(true));
       document.getElementById('btn-save-wl').addEventListener('click', () => {
         if (!state.profile.watchlist.includes(t.id)) {
+          if (t.isLiveTmdb) E.persistLiveTitle(t, state.profile);
           state.profile.watchlist.unshift(t.id);
           E.saveProfile(state.profile);
+          removeFromSessionCandidates(t.id);
           showToast(`Saved "${t.title}" to Watchlist`);
           advanceNextPick(false);
         } else {
-          showToast('Already in your Watchlist');
+          state.profile.watchlist = state.profile.watchlist.filter((id) => id !== t.id);
+          E.saveProfile(state.profile);
+          showToast(`Removed "${t.title}" from Watchlist`);
+          renderTonight();
         }
       });
       document.getElementById('btn-seen-it').addEventListener('click', () => openSeenSheet(t));
@@ -589,8 +775,8 @@
         </div>
 
         <div class="locked-card">
-          <div class="poster-frame" style="height:190px">
-            ${t.posterUrl ? `<img src="${escapeHtml(t.posterUrl)}" alt="${escapeHtml(t.title)}" class="poster-photo" /><div class="poster-photo-scrim"></div>` : E.renderEditorialPosterSVG(t)}
+          <div class="poster-frame" id="locked-poster-frame" data-title-id="${escapeHtml(t.id)}" style="height:190px">
+            ${renderPosterBackdropHtml(t)}
             <div class="poster-top-bar">
               <span class="match-badge">${state.lockedPick.matchPct}% Match</span>
               <span class="type-badge">${escapeHtml(t.runtimeLabel)}</span>
@@ -617,11 +803,11 @@
                 <span>Copy Title for Nuvio Search</span>
                 <span class="sub">Tap to copy</span>
               </button>
-              <a class="launch-link" href="${trailerUrl}" target="_blank" rel="noopener">
+              <a class="launch-link" href="${trailerUrl}" target="_blank" rel="noopener noreferrer">
                 <span>Watch Trailer First</span>
                 <span class="sub">YouTube ↗</span>
               </a>
-              <a class="launch-link" href="${imdbUrl}" target="_blank" rel="noopener">
+              <a class="launch-link" href="${imdbUrl}" target="_blank" rel="noopener noreferrer">
                 <span>Quick Cast & Details</span>
                 <span class="sub">IMDb ↗</span>
               </a>
@@ -636,6 +822,8 @@
           <button class="btn-ghost" id="btn-pick-another" type="button">Pick Something Else</button>
         </div>
       `;
+
+      attachTmdbPoster('locked-poster-frame', t, token);
 
       document.getElementById('btn-copy-title').addEventListener('click', async () => {
         try {
@@ -669,6 +857,7 @@
       btn.addEventListener('click', () => {
         const r = btn.dataset.rate;
         E.learnFromRating(state.profile, title, r);
+        removeFromSessionCandidates(title.id);
         updateTopbar();
         closeSheet();
         showToast(r === 'never' ? `Hidden "${title.title}"` : `Taste DNA updated from "${title.title}"`);
@@ -690,18 +879,41 @@
     const yesBadge = document.getElementById('badge-yes');
     const noBadge = document.getElementById('badge-no');
 
-    function onStart(x, y) { startX = x; startY = y; dx = 0; dragging = true; lockedAxis = null; card.classList.add('swiping'); }
-    function onMove(x, y) {
+    function resetCard() {
+      dragging = false;
+      lockedAxis = null;
+      dx = 0;
+      card.classList.remove('swiping');
+      card.style.transform = '';
+      if (yesBadge) yesBadge.style.opacity = 0;
+      if (noBadge) noBadge.style.opacity = 0;
+    }
+
+    function onStart(x, y) {
+      startX = x;
+      startY = y;
+      dx = 0;
+      dragging = true;
+      lockedAxis = null;
+      card.classList.add('swiping');
+    }
+
+    function onMove(x, y, touchEvent) {
       if (!dragging) return;
-      const ax = x - startX, ay = y - startY;
-      if (!lockedAxis && (Math.abs(ax) > 10 || Math.abs(ay) > 10)) lockedAxis = Math.abs(ax) > Math.abs(ay) ? 'x' : 'y';
+      const ax = x - startX;
+      const ay = y - startY;
+      if (!lockedAxis && (Math.abs(ax) > 10 || Math.abs(ay) > 10)) {
+        lockedAxis = Math.abs(ax) > Math.abs(ay) ? 'x' : 'y';
+      }
       if (lockedAxis !== 'x') return;
+      if (touchEvent && touchEvent.cancelable) touchEvent.preventDefault();
       dx = ax;
       card.style.transform = `translateX(${dx}px) rotate(${dx * 0.035}deg)`;
       const strength = Math.min(1, Math.abs(dx) / 95);
-      yesBadge.style.opacity = dx > 0 ? strength : 0;
-      noBadge.style.opacity = dx < 0 ? strength : 0;
+      if (yesBadge) yesBadge.style.opacity = dx > 0 ? strength : 0;
+      if (noBadge) noBadge.style.opacity = dx < 0 ? strength : 0;
     }
+
     function onEnd() {
       if (!dragging) return;
       dragging = false;
@@ -715,28 +927,37 @@
         card.style.opacity = '0';
         setTimeout(onSwipeLeft, 175);
       } else {
-        card.style.transform = '';
-        yesBadge.style.opacity = 0;
-        noBadge.style.opacity = 0;
+        resetCard();
       }
     }
 
-    card.addEventListener('touchstart', (e) => onStart(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
-    card.addEventListener('touchmove', (e) => onMove(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+    card.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) onStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    card.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1) onMove(e.touches[0].clientX, e.touches[0].clientY, e);
+    }, { passive: false });
     card.addEventListener('touchend', onEnd);
+    card.addEventListener('touchcancel', resetCard);
     card.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || e.target.closest('button, a')) return;
       onStart(e.clientX, e.clientY);
-      const mm = (ev) => onMove(ev.clientX, ev.clientY);
-      const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); onEnd(); };
+      const mm = (ev) => onMove(ev.clientX, ev.clientY, null);
+      const mu = () => {
+        window.removeEventListener('mousemove', mm);
+        window.removeEventListener('mouseup', mu);
+        onEnd();
+      };
       window.addEventListener('mousemove', mm);
       window.addEventListener('mouseup', mu);
     });
   }
 
   // ==================== TASTE DNA VIEW ====================
+  let sliderSaveTimer = null;
   function renderTaste() {
     const root = document.getElementById('view-taste');
+    const token = ++state.renderToken;
     const cal = E.getCalibrationScore(state.profile);
     const deck = E.getCalibrationDeck(state.profile).filter((t) => !state.calibSkipped.includes(t.id));
     const current = deck[0];
@@ -748,8 +969,8 @@
 
       ${current ? `
         <div class="calib-card">
-          <div class="calib-header">
-            ${E.renderEditorialPosterSVG(current)}
+          <div class="calib-header" id="calib-poster-frame" data-title-id="${escapeHtml(current.id)}">
+            ${renderPosterBackdropHtml(current)}
             <div class="poster-top-bar">
               <span class="match-badge">Keep Tuning · ${cal.count} rated</span>
               <span class="type-badge">${typeLabel(current)} · ${current.year}</span>
@@ -782,7 +1003,7 @@
           <span class="panel-meta">${cal.label} (${cal.pct}%)</span>
         </div>
         ${E.DNA_META.map((d) => {
-          const val = state.profile.dna[d.key];
+          const val = Number(state.profile.dna[d.key] ?? 5);
           return `
             <div class="slider-row">
               <div class="slider-ends">
@@ -822,7 +1043,7 @@
               [2010, '2010+'],
               [2018, '2018+']
             ].map(([yr, lbl]) => `
-              <button class="seg-btn ${state.profile.minYear === yr ? 'active' : ''}" data-minyear="${yr}" type="button">${lbl}</button>
+              <button class="seg-btn ${state.profile.minYear === yr ? 'active' : ''}" data-minyear="${yr}" aria-pressed="${state.profile.minYear === yr}" type="button">${lbl}</button>
             `).join('')}
           </div>
         </div>
@@ -834,6 +1055,7 @@
     `;
 
     if (current) {
+      attachTmdbPoster('calib-poster-frame', current, token);
       root.querySelectorAll('[data-calib]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const action = btn.dataset.calib;
@@ -852,8 +1074,14 @@
       input.addEventListener('input', () => {
         const key = input.dataset.dna;
         const v = parseFloat(input.value);
-        state.profile.dna[key] = v;
-        document.getElementById(`val-${key}`).textContent = v.toFixed(1);
+        E.setManualDnaAxis(state.profile, key, v);
+        const valEl = document.getElementById(`val-${key}`);
+        if (valEl) valEl.textContent = v.toFixed(1);
+        clearTimeout(sliderSaveTimer);
+        sliderSaveTimer = setTimeout(() => E.saveProfile(state.profile), 220);
+      });
+      input.addEventListener('change', () => {
+        clearTimeout(sliderSaveTimer);
         E.saveProfile(state.profile);
       });
     });
@@ -875,11 +1103,24 @@
   }
 
   // ==================== LIBRARY VIEW ====================
+  function formatShortDate(iso) {
+    const ts = Date.parse(iso);
+    if (!Number.isFinite(ts)) return '';
+    const diffDays = Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
   function renderLibrary() {
     const root = document.getElementById('view-library');
-    const watchlistItems = state.profile.watchlist.map((id) => E.getTitleById(id)).filter(Boolean);
-    const ratedItems = Object.entries(state.profile.ratings)
+    const watchlistItems = getResolvedWatchlist();
+    const ratedItems = Object.entries(state.profile.ratings || {})
       .map(([id, rating]) => ({ title: E.getTitleById(id), rating }))
+      .filter((x) => x.title);
+    const historyItems = (state.profile.history || [])
+      .map((h) => ({ title: E.getTitleById(h.id), pickedAt: h.pickedAt }))
       .filter((x) => x.title);
 
     root.innerHTML = `
@@ -897,6 +1138,9 @@
         </button>
         <button class="seg-btn ${state.libTab === 'watched' ? 'active' : ''}" data-libtab="watched" type="button">
           Rated (${ratedItems.length})
+        </button>
+        <button class="seg-btn ${state.libTab === 'history' ? 'active' : ''}" data-libtab="history" type="button">
+          Recent (${historyItems.length})
         </button>
       </div>
 
@@ -916,8 +1160,8 @@
                   <div class="lib-meta">${t.year} · ${escapeHtml(t.runtimeLabel)}</div>
                 </div>
                 <div class="lib-actions">
-                  <button class="mini-pill" data-watch-now="${t.id}" type="button">Watch</button>
-                  <button class="mini-pill" data-rm-wl="${t.id}" type="button" aria-label="Remove">✕</button>
+                  <button class="mini-pill" data-watch-now="${escapeHtml(t.id)}" type="button">Watch</button>
+                  <button class="mini-pill" data-rm-wl="${escapeHtml(t.id)}" type="button" aria-label="Remove">✕</button>
                 </div>
               </div>
             `).join('')}
@@ -929,7 +1173,7 @@
             <button class="btn-secondary" id="btn-go-tonight" style="width:auto;padding:10px 18px" type="button">Find Something Tonight</button>
           </div>
         `
-      ) : (
+      ) : state.libTab === 'watched' ? (
         `<div class="lib-list">
           ${ratedItems.map(({ title: t, rating }) => `
             <div class="lib-item">
@@ -938,15 +1182,43 @@
               </div>
               <div class="lib-info">
                 <div class="lib-title">${escapeHtml(t.title)}</div>
-                <div class="lib-meta">${t.year} · ${typeLabel(t)}</div>
+                <div class="lib-meta">${t.year} · ${typeLabel(t)}${t.isLiveTmdb ? ' · TMDB' : ''}</div>
               </div>
               <div class="lib-actions">
-                <button class="mini-pill ${rating}" data-re-rate="${t.id}" type="button">${rating}</button>
-                <button class="mini-pill" data-unrate="${t.id}" type="button" aria-label="Remove">✕</button>
+                <button class="mini-pill ${rating}" data-re-rate="${escapeHtml(t.id)}" type="button">${rating}</button>
+                <button class="mini-pill" data-unrate="${escapeHtml(t.id)}" type="button" aria-label="Remove">✕</button>
               </div>
             </div>
           `).join('')}
         </div>`
+      ) : (
+        historyItems.length > 0 ? `
+          <div class="lib-list">
+            ${historyItems.map(({ title: t, pickedAt }) => {
+              const cur = state.profile.ratings[t.id];
+              return `
+                <div class="lib-item">
+                  <div class="lib-swatch" style="background:${t.poster.bg}">
+                    <div style="position:absolute;inset:0;background:radial-gradient(circle at 70% 30%, ${t.poster.accent}88, transparent 70%)"></div>
+                  </div>
+                  <div class="lib-info">
+                    <div class="lib-title">${escapeHtml(t.title)}</div>
+                    <div class="lib-meta">Locked ${formatShortDate(pickedAt)} · ${typeLabel(t)}</div>
+                  </div>
+                  <div class="lib-actions">
+                    <button class="mini-pill" data-copy-nuvio="${escapeHtml(t.title)}" type="button">Copy</button>
+                    <button class="mini-pill ${cur || ''}" data-re-rate="${escapeHtml(t.id)}" type="button">${cur ? cur : 'Rate'}</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : `
+          <div class="empty-state">
+            <h3>No recent Nuvio picks yet</h3>
+            <p>Whenever you lock in a movie or series for tonight, it shows up here so you can copy or rate it later.</p>
+          </div>
+        `
       )}
     `;
 
@@ -974,14 +1246,28 @@
       })
     );
     root.querySelectorAll('[data-re-rate]').forEach((b) =>
-      b.addEventListener('click', () => { const t = E.getTitleById(b.dataset.reRate); if (t) openSeenSheet(t, false); })
+      b.addEventListener('click', () => {
+        const t = E.getTitleById(b.dataset.reRate);
+        if (t) openSeenSheet(t, false);
+      })
     );
     root.querySelectorAll('[data-unrate]').forEach((b) =>
       b.addEventListener('click', () => {
-        delete state.profile.ratings[b.dataset.unrate];
-        E.saveProfile(state.profile);
+        E.unrateTitle(state.profile, b.dataset.unrate);
         updateTopbar();
         renderLibrary();
+        showToast('Rating removed & Taste DNA recalculated');
+      })
+    );
+    root.querySelectorAll('[data-copy-nuvio]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const titleStr = b.dataset.copyNuvio;
+        try {
+          await navigator.clipboard.writeText(titleStr);
+          showToast(`Copied "${titleStr}" for Nuvio!`);
+        } catch {
+          showToast(`Search "${titleStr}" in Nuvio`);
+        }
       })
     );
   }
@@ -1012,26 +1298,28 @@
               <div class="lib-title">${escapeHtml(t.title)}</div>
               <div class="lib-meta">${t.year} · ${typeLabel(t)}</div>
             </div>
-            <button class="mini-pill ${cur || ''}" data-pick-log="${t.id}" type="button">${cur ? cur : 'Rate'}</button>
+            <button class="mini-pill ${cur || ''}" data-pick-log="${escapeHtml(t.id)}" type="button">${cur ? cur : 'Rate'}</button>
           </div>
         `;
       }).join('');
 
       results.querySelectorAll('[data-pick-log]').forEach((b) => {
-        b.addEventListener('click', () => { const t = E.getTitleById(b.dataset.pickLog); if (t) openSeenSheet(t, false); });
+        b.addEventListener('click', () => {
+          const t = E.getTitleById(b.dataset.pickLog);
+          if (t) openSeenSheet(t, false);
+        });
       });
     }
 
     renderResults('');
     input.addEventListener('input', () => renderResults(input.value));
-    setTimeout(() => input.focus(), 80);
   }
 
   function openProfileJsonSheet() {
-    const json = JSON.stringify(state.profile, null, 2);
+    const json = E.exportProfileJson(state.profile, false);
     openSheet(`
       <h3 class="sheet-title">Taste Profile JSON</h3>
-      <p class="sheet-sub">Back up your ratings or paste a custom Taste Profile JSON.</p>
+      <p class="sheet-sub">Back up your ratings or paste a Taste Profile JSON. Your TMDB key is excluded automatically for safety.</p>
       <textarea class="field-textarea" id="profile-json-box">${escapeHtml(json)}</textarea>
       <div class="quick-links" style="margin-top:12px">
         <button class="btn-secondary" id="btn-copy-json" type="button">Copy JSON</button>
@@ -1040,25 +1328,40 @@
     `);
 
     document.getElementById('btn-copy-json').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(document.getElementById('profile-json-box').value); showToast('Profile JSON copied'); }
-      catch { showToast('Select & copy the text above'); }
+      try {
+        await navigator.clipboard.writeText(document.getElementById('profile-json-box').value);
+        showToast('Profile JSON copied');
+      } catch {
+        showToast('Select & copy the text above');
+      }
     });
     document.getElementById('btn-apply-json').addEventListener('click', () => {
       try {
         const parsed = JSON.parse(document.getElementById('profile-json-box').value);
-        const def = E.createDefaultProfile();
-        state.profile = { ...def, ...parsed, dna: { ...def.dna, ...(parsed.dna || {}) } };
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Expected JSON object');
+        }
+        const existingKey = state.profile.tmdbApiKey || '';
+        const sanitized = E.sanitizeProfile(parsed);
+        if (!sanitized.tmdbApiKey && existingKey) {
+          sanitized.tmdbApiKey = existingKey;
+        }
+        state.profile = sanitized;
         E.saveProfile(state.profile);
-        updateTopbar(); closeSheet(); render();
+        updateTopbar();
+        closeSheet();
+        render();
         showToast('Taste Profile applied!');
-      } catch { showToast('Invalid JSON format'); }
+      } catch {
+        showToast('Invalid JSON format — nothing was changed');
+      }
     });
   }
 
   function openSettingsSheet() {
     openSheet(`
       <h3 class="sheet-title">Settings</h3>
-      <p class="sheet-sub">Customize your personal Cued app.</p>
+      <p class="sheet-sub">Customize your personal Cued × Nuvio app.</p>
 
       <div class="control-group">
         <div class="control-label"><span>Profile Label</span></div>
@@ -1067,8 +1370,14 @@
 
       <div class="control-group">
         <div class="control-label"><span>TMDB API Key (Optional)</span></div>
-        <input type="text" class="field-input" id="set-tmdb" value="${escapeHtml(state.profile.tmdbApiKey || '')}" placeholder="Free TMDB v3 key for live posters" />
-        <p style="font-size:12px;color:var(--ink-dim);margin:6px 0 0">Leave blank to use built-in offline cinema posters.</p>
+        <div class="input-row">
+          <input type="password" class="field-input" id="set-tmdb" value="${escapeHtml(state.profile.tmdbApiKey || '')}" placeholder="Free TMDB v3 key or v4 token" autocomplete="off" />
+          <button class="mini-pill" id="btn-toggle-key" type="button" style="padding:11px 12px;flex-shrink:0">Show</button>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">
+          <p style="font-size:12px;color:var(--ink-dim);margin:0">Leave blank to use offline posters.</p>
+          <button class="mini-pill" id="btn-test-tmdb" type="button" style="color:var(--ink)">Test Key</button>
+        </div>
       </div>
 
       <button class="btn-primary" id="btn-save-settings" type="button" style="margin-bottom:10px">Save Settings</button>
@@ -1076,19 +1385,44 @@
       <button class="btn-ghost" id="btn-reset-all" type="button" style="width:100%;color:#E57D68">Restore Calibrated Defaults</button>
     `);
 
+    const keyInput = document.getElementById('set-tmdb');
+    const toggleBtn = document.getElementById('btn-toggle-key');
+    toggleBtn.addEventListener('click', () => {
+      const showing = keyInput.type === 'text';
+      keyInput.type = showing ? 'password' : 'text';
+      toggleBtn.textContent = showing ? 'Show' : 'Hide';
+    });
+
+    const testBtn = document.getElementById('btn-test-tmdb');
+    testBtn.addEventListener('click', async () => {
+      const key = keyInput.value.trim();
+      testBtn.disabled = true;
+      testBtn.textContent = 'Testing…';
+      const res = await E.testTmdbKey(key);
+      testBtn.disabled = false;
+      testBtn.textContent = 'Test Key';
+      showToast(res.message, 3200);
+    });
+
     document.getElementById('btn-save-settings').addEventListener('click', () => {
       state.profile.profileName = document.getElementById('set-name').value.trim() || 'Personal Taste';
-      state.profile.tmdbApiKey = document.getElementById('set-tmdb').value.trim();
+      state.profile.tmdbApiKey = keyInput.value.trim();
       E.saveProfile(state.profile);
-      closeSheet(); render(); showToast('Settings saved');
+      closeSheet();
+      render();
+      showToast('Settings saved');
     });
     document.getElementById('btn-open-json-from-set').addEventListener('click', openProfileJsonSheet);
     document.getElementById('btn-reset-all').addEventListener('click', () => {
+      const keepKey = state.profile.tmdbApiKey || '';
       state.profile = E.createDefaultProfile();
+      state.profile.tmdbApiKey = keepKey;
       state.calibSkipped = [];
       state.tonightStep = 'setup';
       E.saveProfile(state.profile);
-      updateTopbar(); closeSheet(); render();
+      updateTopbar();
+      closeSheet();
+      render();
       showToast('Restored your calibrated profile');
     });
   }

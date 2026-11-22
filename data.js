@@ -124,7 +124,27 @@ const RAW_CATALOG = [
   ['fallout','Fallout',2024,'series','western',55,'8 episodes · 55m eps','Robertson-Dworet & Wagner',['Sci-Fi','Action','Dark Comedy'],['hype','fun'],'8.3','EN','An upbeat bunker dweller ventures onto a retro-futuristic wasteland and collides with a sarcastic undead bounty hunter.',['Wickedly fun apocalypse','Breezy 8-ep binge'],['#171C22','#E0AA3A','sun'],0,[9,7,6,5,8,9]],
   ['interstellar','Interstellar',2014,'movie','western',169,'2h 49m','Christopher Nolan',['Sci-Fi','Drama','Adventure'],['deep','mindbend','hype'],'8.7','EN','With Earth dying, a former pilot leaves his daughter behind to journey through a wormhole in search of a new home for humanity.',['Epic scale + big cry','Mind-bending time payoff'],['#12161E','#D99F4A','ring'],0,[8,8,9,9,2,10]],
   ['kaithi','Kaithi',2019,'movie','indian',145,'2h 25m','Lokesh Kanagaraj',['Action','Crime','Thriller'],['hype','crime'],'8.4','TA','Fresh out of prison and trying to meet his daughter for the first time, an ex-con drives a truck full of poisoned cops through an army of cartel killers in one single night.',['One-night non-stop siege','Zero songs, pure adrenaline'],['#191512','#E06A32','beam'],0,[10,9,5,7,2,9]],
-  ['talaash','Talaash',2012,'movie','indian',140,'2h 20m','Reema Kagti',['Crime','Mystery','Thriller'],['crime','mindbend','horror'],'7.2','HI','A grieving Mumbai inspector investigates a movie star’s mysterious car crash—leading him down a haunting trail of secrets and an eerie twist.',['Crime mystery + supernatural twist','Gripping Aamir Khan'],['#14181F','#8BA6BD','waves'],0,[8,8,9,6,2,5]]
+  ['talaash','Talaash',2012,'movie','indian',140,'2h 20m','Reema Kagti',['Crime','Mystery','Thriller'],['crime','mindbend','horror'],'7.2','HI','A grieving Mumbai inspector investigates a movie star’s mysterious car crash—leading him down a haunting trail of secrets and an eerie twist.',['Crime mystery + supernatural twist','Gripping Aamir Khan'],['#14181F','#8BA6BD','waves'],0,[8,8,9,6,2,5]],
+
+  // ==================== INDIAN FUN & CROWD-PLEASERS (MOVIE / INDIAN / FUN) ====================
+  ['3-idiots','3 Idiots',2009,'movie','indian',170,'2h 50m','Rajkumar Hirani',['Comedy','Drama'],['fun','deep'],'8.4','HI','Two friends race across India hunting for their vanished college roommate—the mischievous genius who turned their cutthroat engineering campus upside down.',['All-time crowd-pleaser','Big laughs & huge heart'],['#181A14','#E0A838','sun'],0,[8,5,6,10,9,6]],
+  ['stree','Stree',2018,'movie','indian',128,'2h 08m','Amar Kaushik',['Horror','Comedy','Mystery'],['fun','horror','mindbend'],'7.5','HI','During a four-day festival in a small town, a female spirit abducts men who wander out alone at night—until a lovestruck tailor suspects his mysterious new crush.',['Wicked horror-comedy twist','Sharp, breezy 2-hour ride'],['#1D1316','#DF543E','arch'],0,[9,7,7,6,9,6]],
+  ['znmd','Zindagi Na Milegi Dobara',2011,'movie','indian',155,'2h 35m','Zoya Akhtar',['Adventure','Comedy','Drama'],['fun','deep'],'8.2','HI','Three childhood friends reunite for a bachelor road trip across Spain where each picks one extreme sport—forcing buried resentments and fears into the open.',['Electric road-trip escape','Feel-good emotional payoff'],['#1B1612','#E28638','horizon'],0,[8,5,5,9,8,8]],
+  ['delhi-belly','Delhi Belly',2011,'movie','indian',103,'1h 43m','Abhinay Deo',['Dark Comedy','Crime','Action'],['fun','crime'],'7.6','HI','Three broke Delhi roommates accidentally swap a stool sample with a mob boss’s smuggled diamonds—sparking a frantic, filthy, non-stop chase across the city.',['Chaotic 103-min dark caper','Zero-filter cult comedy'],['#1F1510','#E59A2E','burst'],0,[10,7,6,4,10,6]],
+
+  // ==================== INDIAN PRESTIGE & HEARTFELT SERIES (SERIES / INDIAN / DEEP) ====================
+  ['scam-1992','Scam 1992: The Harshad Mehta Story',2020,'series','indian',54,'10 episodes (complete)','Hansal Mehta',['Crime','Drama','Biography'],['crime','deep','mindbend'],'9.3','HI','From a cramped chawl to ruling Dalal Street, ambitious stockbroker Harshad Mehta exploits India’s banking loopholes—triggering a seismic financial thriller.',['Electrifying rise-and-fall','Iconic score & taut drama'],['#151A16','#DFAC38','stairs'],0,[9,8,9,6,5,7]],
+  ['panchayat','Panchayat',2020,'series','indian',35,'3 seasons · 35m eps','Deepak Kumar Mishra',['Comedy','Drama'],['deep','fun'],'9.0','HI','Stuck taking a lowly village secretary job in rural Uttar Pradesh, an engineering graduate gets pulled into eccentric local politics and unexpectedly deep bonds.',['Bingeable 35m gems','Warmest wit & real soul'],['#171D15','#D4A646','horizon'],0,[8,5,5,10,9,4]],
+  ['rocket-boys','Rocket Boys',2022,'series','indian',48,'2 seasons · 48m eps','Abhay Pannu',['Drama','History'],['deep','hype'],'8.9','HI','Visionary physicists Homi Bhabha and Vikram Sarabhai battle global espionage, politics, and impossible odds to launch newly independent India into the space and nuclear age.',['Goosebump true-story triumph','Gripping historical momentum'],['#131722','#E08E3B','beam'],0,[8,8,7,9,4,8]],
+
+  // ==================== INTERNATIONAL HORROR, THRILLERS & FUN SERIES ====================
+  ['train-to-busan','Train to Busan',2016,'movie','intl',118,'1h 58m','Yeon Sang-ho',['Horror','Action','Thriller'],['horror','hype','deep'],'7.6','KO','When a sudden zombie outbreak traps passengers aboard a speeding bullet train to Busan, a workaholic dad must fight car-by-car to keep his young daughter alive.',['Relentless bullet-train siege','Gut-wrenching emotional climax'],['#15181E','#D9483B','bars'],0,[10,10,5,9,2,9]],
+  ['the-wailing','The Wailing',2016,'movie','intl',156,'2h 36m','Na Hong-jin',['Horror','Mystery','Thriller'],['horror','mindbend'],'7.4','KO','When a gruesome plague drives a rainy Korean mountain village mad after a stranger arrives, a small-town cop races against an ancient evil to save his daughter.',['Unforgettable folklore dread','Mind-bending final act'],['#141916','#C8523A','maze'],0,[7,10,10,5,3,7]],
+  ['kingdom-kr','Kingdom',2019,'series','intl',50,'2 seasons · 50m eps','Kim Eun-hee',['Horror','Action','History'],['horror','hype','crime'],'8.3','KO','In feudal Korea, a framed Crown Prince investigates his father’s secret illness—uncovering a lethal palace conspiracy and a plague that raises the dead.',['Feudal intrigue meets undead siege','Zero-filler 6-ep seasons'],['#17151A','#D94C38','blades'],0,[9,10,8,5,2,10]],
+  ['alice-in-borderland','Alice in Borderland',2020,'series','intl',48,'2 seasons · 48m eps','Shinsuke Sato',['Sci-Fi','Thriller','Horror'],['mindbend','hype','horror'],'7.7','JA','An obsessive gamer and his friends wake up in an empty Tokyo—forced to outsmart lethal playing-card death games to earn another day alive.',['Twisted death-game puzzles','Breathless anime-grade action'],['#14151E','#E04654','grid'],0,[10,10,9,5,3,9]],
+  ['vincenzo','Vincenzo',2021,'series','intl',80,'20 episodes (complete)','Kim Hee-won',['Crime','Dark Comedy','Action'],['fun','crime','hype'],'8.4','KO','A ruthless Korean-Italian Mafia consigliere returns to Seoul for hidden gold—and teams up with a razor-tongued lawyer to burn down a corrupt conglomerate Mafia-style.',['Stylish antihero swagger','Wicked dark comedy + revenge'],['#191414','#D9A03C','split'],0,[8,8,8,6,9,8]],
+  ['lupin','Lupin',2021,'series','intl',45,'3 parts · 45m eps','George Kay',['Crime','Mystery','Adventure'],['fun','mindbend','crime'],'7.5','FR','Inspired by gentleman thief Arsène Lupin, a master of disguise hits the Louvre to avenge his framed father—staying three clever moves ahead of Paris police.',['Slick master-of-disguise heists','Clever gentleman-thief twists'],['#141821','#D4A042','prism'],0,[9,6,9,7,8,7]],
+  ['moving-kr','Moving',2023,'series','intl',50,'20 episodes (complete)','Park In-je',['Action','Sci-Fi','Drama'],['deep','hype','fun'],'8.4','KO','Three Seoul teenagers hiding inherited superpowers try to live normal lives—until a ruthless foreign assassin starts hunting their ex-black-ops parents one by one.',['Big-budget superhero soul','Jaw-dropping action + heart'],['#131922','#E0953A','ring'],0,[8,8,7,10,7,10]]
 ];
 
 // Authentic public consensus & audience reception highlights
@@ -303,6 +323,76 @@ const PUBLIC_BUZZ = {
     audiencePct: 97,
     overview: 'Following the real journey of Manoj Kumar Sharma from a tiny Chambal village to Delhi’s grueling UPSC coaching streets, he refuses to quit despite poverty, rejection, and brutal odds.',
     publicSays: 'One of the highest audience-rated Indian films in years. Viewers say it’s deeply inspiring without feeling cheesy—emotional, fast-paced, and genuinely uplifting by the credits.'
+  },
+  '3-idiots': {
+    audiencePct: 95,
+    overview: 'Ten years after graduation, Farhan and Raju follow a sudden lead to find Rancho—the brilliant, rule-breaking friend who taught them to chase excellence instead of grades.',
+    publicSays: 'One of the most universally beloved Indian films ever made. Viewers praise how seamlessly it swings from iconic slapstick comedy to genuinely tear-jerking emotional payoff without ever dragging.'
+  },
+  'stree': {
+    audiencePct: 89,
+    overview: 'Every year during Chanderi’s annual festival, men paint protective warnings on their walls to ward off a legendary ghost—forcing a quirky local tailor and his friends to crack the curse.',
+    publicSays: 'Widely celebrated for reinventing Indian horror-comedy. Audiences rave about Rajkummar Rao and Pankaj Tripathi’s deadpan comic timing, real jump scares, and a clever folklore twist.'
+  },
+  'znmd': {
+    audiencePct: 94,
+    overview: 'Before Kabir’s wedding, three old friends embark on a pact-bound road trip across Spain, confronting scuba depths, skydiving, and long-buried truths that reshape their lives.',
+    publicSays: 'The gold standard of modern Hindi friendship dramas. Viewers love its effortless humor, gorgeous Spanish cinematography, and how genuinely inspiring and rewatchable the journey feels.'
+  },
+  'delhi-belly': {
+    audiencePct: 88,
+    overview: 'When a routine courier favor goes catastrophically wrong, three slacker roommates find themselves hunted by a ruthless gangster and his bumbling henchmen over a missing bag of diamonds.',
+    publicSays: 'Hailed as a fearless cult classic in Indian cinema—frequently likened to Guy Ritchie’s crime capers. Audiences love its tight 103-minute runtime, outrageous gags, and killer soundtrack.'
+  },
+  'scam-1992': {
+    audiencePct: 97,
+    overview: 'Set in 1980s and 1990s Mumbai, this gripping true story tracks charismatic stockbroker Harshad Mehta’s meteoric rise from jobber to "Big Bull" and the fearless journalist who exposed his ₹5,000-crore scam.',
+    publicSays: 'Widely ranked as India’s greatest streaming series alongside Breaking Bad in sheer rise-and-fall tension. Audiences rave about Pratik Gandhi’s magnetic lead performance, razor-sharp dialogues, and the unforgettable theme music.'
+  },
+  'panchayat': {
+    audiencePct: 96,
+    overview: 'Reluctantly posted to the remote village of Phulera while studying to escape it, young Abhishek navigates quirky colleagues, village rivalries, and small crises that quietly win him over.',
+    publicSays: 'Adored across generations as India’s ultimate comfort drama with genuine stakes. Viewers praise Jitendra Kumar, Raghubir Yadav, and Neena Gupta’s effortless ensemble chemistry and deeply moving season finales.'
+  },
+  'rocket-boys': {
+    audiencePct: 95,
+    overview: 'Spanning three pivotal decades after independence, two brilliant friends—flamboyant nuclear pioneer Homi Bhabha and idealistic space visionary Vikram Sarabhai—build India’s scientific future against relentless global pressure.',
+    publicSays: 'Acclaimed as prestige Indian television at its peak. Audiences rave about Jim Sarbh and Ishwak Singh’s electric chemistry, thriller-grade Cold War tension, and deeply stirring moments of national pride.'
+  },
+  'train-to-busan': {
+    audiencePct: 93,
+    overview: 'A cynical fund manager boards the KTX express from Seoul to Busan with his estranged daughter just as a viral outbreak erupts—turning every train car into a desperate fight for survival.',
+    publicSays: 'Universally hailed as one of the greatest modern zombie thrillers ever made. Viewers rave about the blistering action choreography, Ma Dong-seok’s scene-stealing heroics, and an ending that leaves hardened horror fans in tears.'
+  },
+  'the-wailing': {
+    audiencePct: 89,
+    overview: 'As violent, unexplained murders sweep a misty mountain village, panicked policeman Jong-goo follows clues linking a reclusive outsider, a ghostly woman, and a charismatic shaman in a battle for his daughter’s soul.',
+    publicSays: 'Revered by horror and thriller fans as a towering masterpiece of dread. Audiences praise its unforgettable dual-ritual sequence and a jaw-dropping final 20 minutes that sparks endless debate.'
+  },
+  'kingdom-kr': {
+    audiencePct: 94,
+    overview: 'Branded a traitor by a ruthless court clan keeping the ailing King locked away, Crown Prince Lee Chang flees south and discovers a horrific famine-fueled resurrection plague sweeping the kingdom.',
+    publicSays: 'Frequently described as "Game of Thrones meets Train to Busan." Viewers rave about its lavish historical cinematography, tight 6-episode seasons with zero filler, and heart-stopping undead set pieces.'
+  },
+  'alice-in-borderland': {
+    audiencePct: 91,
+    overview: 'After a strange burst of fireworks empties all of Tokyo in an instant, quick-thinking gamer Arisu teams up with fearless climber Usagi to crack sadistic logic, physical, and psychological games.',
+    publicSays: 'A massive favorite for Squid Game and anime thriller fans. Audiences praise its wildly inventive death-game rules, ruthless twists, and a surprisingly satisfying Season 2 mystery payoff.'
+  },
+  'vincenzo': {
+    audiencePct: 94,
+    overview: 'Returning from Italy to recover a secret vault buried under a rundown Seoul plaza, sleek Mafia lawyer Vincenzo Cassano declares ruthless war on an untouchable pharmaceutical empire.',
+    publicSays: 'Wildly popular for blending badass crime swagger with laugh-out-loud dark comedy. Viewers rave about Song Joong-ki’s ice-cold antihero charm, unhinged villains, and deeply cathartic revenge payoffs.'
+  },
+  'lupin': {
+    audiencePct: 88,
+    overview: 'Twenty-five years after his immigrant father was framed for stealing a priceless diamond necklace, charismatic con artist Assane Diop uses classic Arsène Lupin tricks to expose a billionaire family.',
+    publicSays: 'A breezy global crowd-pleaser for Sherlock and Money Heist fans. Viewers love Omar Sy’s effortless charm, clever reveal flashbacks, and fast-paced Parisian heist energy with zero sluggish episodes.'
+  },
+  'moving-kr': {
+    audiencePct: 95,
+    overview: 'Quietly raising kids who can fly, heal, or move at superhuman speed, former covert agents are forced out of hiding when a mysterious killer begins targeting retired operatives across South Korea.',
+    publicSays: 'Celebrated as one of the finest superhero series ever made. Audiences adore how it pairs blockbuster-grade fights with deeply moving romance and parent-child devotion that earns every tear.'
   }
 };
 
