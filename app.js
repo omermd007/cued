@@ -112,22 +112,47 @@
   document.getElementById('settings-btn').addEventListener('click', openSettingsSheet);
 
   // ==================== TONIGHT VIEW ====================
-  function startPicking(watchlistOnly = false) {
+  async function startPicking(watchlistOnly = false) {
     state.watchlistMode = watchlistOnly;
     state.sessionSkipped = [];
     state.sessionCandidates = [];
+    state.sessionPool = [];
     state.shotIndex = 0;
 
-    const { scored, relaxedNote } = E.getRankedPicks(state.profile, state.context, [], watchlistOnly);
-    state.relaxedNote = relaxedNote;
+    const { scored: localScored, relaxedNote } = E.getRankedPicks(state.profile, state.context, [], watchlistOnly);
+    let merged = localScored;
+    let note = relaxedNote;
 
-    if (scored.length === 0) {
+    if (!watchlistOnly && state.profile.tmdbApiKey && state.profile.tmdbApiKey.trim()) {
+      showToast('Ranking curated + live TMDB picks by Taste DNA...');
+      try {
+        const live = await Promise.race([
+          E.discoverLiveFromTmdb(state.profile, state.context, []),
+          new Promise((resolve) => setTimeout(() => resolve([]), 3500))
+        ]);
+        if (live.length > 0) {
+          // If local had to relax region/mood, prefer exact live TMDB matches
+          const baseLocal = relaxedNote ? [] : localScored;
+          merged = [...baseLocal, ...live].sort((a, b) => b.rawScore - a.rawScore);
+          note = relaxedNote
+            ? 'Live TMDB matches ranked by your Taste DNA'
+            : 'Curated + Live TMDB · Ranked by your Taste DNA';
+        }
+      } catch {
+        // Fall back silently to local catalog
+      }
+    }
+
+    state.relaxedNote = note;
+
+    if (merged.length === 0) {
       showToast(watchlistOnly ? 'Save a few picks first!' : 'No unseen titles left—check Library or Settings.');
       return;
     }
 
-    state.currentPick = scored[0];
-    state.sessionCandidates = [scored[0]];
+    state.sessionPool = merged;
+    state.currentPick = merged[0];
+    state.sessionCandidates = [merged[0]];
     state.tonightStep = 'pick';
     renderTonight();
   }
@@ -145,11 +170,16 @@
       return;
     }
 
-    // If we are in a Live Web Pick session, advance through the pre-fetched TMDB picks first
-    if (state.currentPick && state.currentPick.title.isLiveTmdb) {
-      const nextLive = state.sessionCandidates.find((c) => !state.sessionSkipped.includes(c.title.id));
-      if (nextLive) {
-        state.currentPick = nextLive;
+    // Step through pre-ranked session pool (blended local + live TMDB) first
+    if (Array.isArray(state.sessionPool) && state.sessionPool.length > 0) {
+      const nextFromPool = state.sessionPool.find(
+        (c) => !state.sessionSkipped.includes(c.title.id) && !state.profile.ratings[c.title.id]
+      );
+      if (nextFromPool) {
+        state.currentPick = nextFromPool;
+        if (!state.sessionCandidates.some((c) => c.title.id === nextFromPool.title.id)) {
+          state.sessionCandidates.push(nextFromPool);
+        }
         state.tonightStep = 'pick';
         renderTonight();
         return;
@@ -308,9 +338,10 @@
         state.watchlistMode = false;
         state.sessionSkipped = [];
         state.shotIndex = 0;
-        state.relaxedNote = 'Live Internet Pick via TMDB Discover';
+        state.relaxedNote = 'Live TMDB Picks · Ranked by your Taste DNA';
+        state.sessionPool = live;
         state.currentPick = live[0];
-        state.sessionCandidates = live.slice(0, 3);
+        state.sessionCandidates = [live[0]];
         state.tonightStep = 'pick';
         renderTonight();
       });

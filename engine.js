@@ -124,7 +124,7 @@
   }
 
   function getTitleById(id) {
-    return window.CUED_CATALOG.find((t) => t.id === id);
+    return window.CUED_CATALOG.find((t) => t.id === id) || liveTitleRegistry.get(id);
   }
 
   function scoreTitle(title, profile, context) {
@@ -373,56 +373,132 @@
     }
   }
 
-  // Live Internet Catalog Discovery via TMDB API (optional free key in Settings)
+  const liveTitleRegistry = new Map();
+
+  const TMDB_GENRES = {
+    28:    { name: 'Action',      moods: ['hype', 'fun'],           dna: { pace: 9, intensity: 8, complexity: 5, warmth: 4, humor: 5, spectacle: 9 } },
+    12:    { name: 'Adventure',   moods: ['fun', 'hype'],           dna: { pace: 8, intensity: 6, complexity: 5, warmth: 6, humor: 6, spectacle: 9 } },
+    16:    { name: 'Animation',   moods: ['hype', 'fun'],           dna: { pace: 8, intensity: 7, complexity: 6, warmth: 7, humor: 6, spectacle: 9 } },
+    35:    { name: 'Comedy',      moods: ['fun'],                   dna: { pace: 8, intensity: 4, complexity: 5, warmth: 7, humor: 9, spectacle: 4 } },
+    80:    { name: 'Crime',       moods: ['crime', 'mindbend'],     dna: { pace: 8, intensity: 9, complexity: 8, warmth: 4, humor: 4, spectacle: 6 } },
+    99:    { name: 'Documentary', moods: ['deep'],                  dna: { pace: 5, intensity: 6, complexity: 7, warmth: 7, humor: 3, spectacle: 4 } },
+    18:    { name: 'Drama',       moods: ['deep'],                  dna: { pace: 6, intensity: 7, complexity: 7, warmth: 8, humor: 3, spectacle: 5 } },
+    10751: { name: 'Family',      moods: ['fun', 'deep'],           dna: { pace: 7, intensity: 3, complexity: 4, warmth: 9, humor: 7, spectacle: 6 } },
+    14:    { name: 'Fantasy',     moods: ['hype', 'fun'],           dna: { pace: 8, intensity: 7, complexity: 7, warmth: 6, humor: 5, spectacle: 10 } },
+    36:    { name: 'History',     moods: ['deep'],                  dna: { pace: 6, intensity: 7, complexity: 7, warmth: 8, humor: 2, spectacle: 8 } },
+    27:    { name: 'Horror',      moods: ['horror', 'mindbend'],    dna: { pace: 8, intensity: 10, complexity: 7, warmth: 2, humor: 2, spectacle: 6 } },
+    10402: { name: 'Music',       moods: ['deep', 'fun'],           dna: { pace: 7, intensity: 5, complexity: 5, warmth: 8, humor: 5, spectacle: 6 } },
+    9648:  { name: 'Mystery',     moods: ['mindbend', 'crime'],     dna: { pace: 8, intensity: 8, complexity: 10, warmth: 4, humor: 3, spectacle: 5 } },
+    10749: { name: 'Romance',     moods: ['deep', 'fun'],           dna: { pace: 6, intensity: 5, complexity: 4, warmth: 9, humor: 6, spectacle: 4 } },
+    878:   { name: 'Sci-Fi',      moods: ['mindbend', 'hype'],      dna: { pace: 8, intensity: 8, complexity: 9, warmth: 5, humor: 4, spectacle: 9 } },
+    53:    { name: 'Thriller',    moods: ['crime', 'mindbend'],     dna: { pace: 9, intensity: 9, complexity: 9, warmth: 3, humor: 2, spectacle: 6 } },
+    10752: { name: 'War',         moods: ['deep', 'hype'],          dna: { pace: 7, intensity: 9, complexity: 6, warmth: 7, humor: 2, spectacle: 9 } },
+    37:    { name: 'Western',     moods: ['crime', 'hype'],         dna: { pace: 7, intensity: 8, complexity: 6, warmth: 4, humor: 3, spectacle: 8 } },
+    10759: { name: 'Action',      moods: ['hype', 'crime'],         dna: { pace: 9, intensity: 8, complexity: 6, warmth: 5, humor: 5, spectacle: 9 } },
+    10765: { name: 'Sci-Fi',      moods: ['mindbend', 'hype'],      dna: { pace: 8, intensity: 8, complexity: 8, warmth: 5, humor: 4, spectacle: 9 } },
+    10768: { name: 'War',         moods: ['deep', 'crime'],         dna: { pace: 7, intensity: 8, complexity: 8, warmth: 5, humor: 3, spectacle: 8 } }
+  };
+
+  function inferTmdbMetadata(item, context, isSeries, isAnime) {
+    const genreIds = Array.isArray(item.genre_ids) ? item.genre_ids : [];
+    const matched = genreIds.map((id) => TMDB_GENRES[id]).filter(Boolean);
+
+    const genres = [];
+    const moods = [];
+    for (const g of matched) {
+      if (!genres.includes(g.name)) genres.push(g.name);
+      for (const m of g.moods) {
+        if (!moods.includes(m)) moods.push(m);
+      }
+    }
+    if (genres.length === 0) genres.push(context.mood && context.mood !== 'any' ? context.mood : 'Drama');
+    if (moods.length === 0) moods.push(context.mood && context.mood !== 'any' ? context.mood : 'crime');
+
+    // Compute 6-axis DNA vector from genre profiles
+    const dna = { pace: 7, intensity: 7, complexity: 6.5, warmth: 5.5, humor: 4.5, spectacle: 6.5 };
+    if (matched.length > 0) {
+      for (const k of DNA_KEYS) {
+        const avg = matched.reduce((acc, g) => acc + g.dna[k], 0) / matched.length;
+        dna[k] = Number(clamp(avg, 1, 10).toFixed(1));
+      }
+    }
+
+    // Refine DNA using overview cues (twists, pacing, dark stakes, humor, heart)
+    const text = (item.overview || '').toLowerCase();
+    if (/\b(twist|conspiracy|secret|mystery|detective|investigat|puzzle|mind|hidden|suspect|clue)\b/.test(text)) {
+      dna.complexity = clamp(dna.complexity + 1.1, 1, 10);
+    }
+    if (/\b(killer|murder|cartel|gang|mafia|revenge|brutal|deadly|hostage|terror|survive|hunt)\b/.test(text)) {
+      dna.intensity = clamp(dna.intensity + 1.0, 1, 10);
+      dna.pace = clamp(dna.pace + 0.7, 1, 10);
+    }
+    if (/\b(heist|chase|race against|mission|spy|agent|battle|war|epic|empire|kingdom)\b/.test(text)) {
+      dna.pace = clamp(dna.pace + 0.8, 1, 10);
+      dna.spectacle = clamp(dna.spectacle + 1.0, 1, 10);
+    }
+    if (/\b(funny|hilarious|comic|satire|misadventure|witty)\b/.test(text)) {
+      dna.humor = clamp(dna.humor + 1.4, 1, 10);
+    }
+    if (/\b(family|love|friendship|heart|dream|hope|bond|true story|inspires)\b/.test(text)) {
+      dna.warmth = clamp(dna.warmth + 1.0, 1, 10);
+    }
+
+    // Infer origin accurately
+    const lang = (item.original_language || 'en').toLowerCase();
+    const countries = Array.isArray(item.origin_country) ? item.origin_country : [];
+    const indianLangs = new Set(['hi', 'ta', 'te', 'ml', 'kn', 'mr', 'bn', 'pa', 'gu']);
+    let origin = 'western';
+    if (isAnime || (genreIds.includes(16) && (lang === 'ja' || countries.includes('JP')))) {
+      origin = 'anime';
+    } else if (context.origin && context.origin !== 'any') {
+      origin = context.origin;
+    } else if (countries.includes('IN') || indianLangs.has(lang)) {
+      origin = 'indian';
+    } else if (countries.some((c) => ['US', 'GB', 'CA', 'AU', 'IE', 'NZ'].includes(c)) || lang === 'en') {
+      origin = 'western';
+    } else {
+      origin = 'intl';
+    }
+
+    return { genres: genres.slice(0, 3), moods: moods.slice(0, 3), dna, origin };
+  }
+
+  // Live Internet Catalog Discovery via TMDB API, scored & ranked by Taste DNA
   async function discoverLiveFromTmdb(profile, context, excludeIds = []) {
     const apiKey = (profile.tmdbApiKey || '').trim();
     if (!apiKey) return [];
     try {
       const isAnime = context.format === 'anime';
-      const isSeries = context.format === 'series' || isAnime;
-      const endpoint = isSeries ? 'tv' : 'movie';
+      const endpoints = isAnime
+        ? ['tv']
+        : context.format === 'movie'
+        ? ['movie']
+        : context.format === 'series'
+        ? ['tv']
+        : ['movie', 'tv'];
 
       const moodGenresMovie = {
-        crime: '80,53,9648',
-        mindbend: '9648,53,878',
-        deep: '18,36,10752',
-        hype: '28,12,14',
-        horror: '27,53,9648',
-        fun: '12,35,28'
+        crime: '80|53|9648',
+        mindbend: '9648|53|878',
+        deep: '18|36|10752',
+        hype: '28|12|14',
+        horror: '27|53',
+        fun: '35|12|28'
       };
       const moodGenresTv = {
-        crime: '80,9648',
-        mindbend: '9648,10765',
+        crime: '80|9648',
+        mindbend: '9648|10765',
         deep: '18',
-        hype: '10759,10765',
-        horror: '9648,10765',
-        fun: '35,10759'
+        hype: '10759|10765',
+        horror: '9648|10765',
+        fun: '35|10759'
       };
 
-      const params = new URLSearchParams({
-        sort_by: 'vote_average.desc',
-        'vote_count.gte': context.origin === 'indian' ? '60' : '250',
-        'vote_average.gte': '7.2',
-        page: String(Math.floor(Math.random() * 2) + 1)
-      });
-
-      if (isAnime) {
-        params.set('with_genres', '16');
-        params.set('with_origin_country', 'JP');
-      } else {
-        const gMap = isSeries ? moodGenresTv : moodGenresMovie;
-        if (context.mood && context.mood !== 'any' && gMap[context.mood]) {
-          params.set('with_genres', gMap[context.mood].split(',')[0]);
-        }
-        if (context.origin === 'indian') params.set('with_origin_country', 'IN');
-        else if (context.origin === 'western') params.set('with_origin_country', 'US|GB');
-        else if (context.origin === 'intl') params.set('with_origin_country', 'KR|JP|ES|FR|DE');
-      }
-
-      const res = await tmdbFetch(`https://api.themoviedb.org/3/discover/${endpoint}?${params.toString()}`, apiKey);
-      if (!res || !res.ok) return [];
-      const data = await res.json();
       const exSet = new Set([...excludeIds, ...Object.keys(profile.ratings)]);
+      const localTitles = new Set(
+        window.CUED_CATALOG.map((c) => `${c.title.toLowerCase().replace(/[^a-z0-9]/g, '')}-${c.year}`)
+      );
+
       const palettes = [
         ['#1A1513', '#E05A3A', 'beam'],
         ['#14191F', '#D9A441', 'ring'],
@@ -430,49 +506,100 @@
         ['#1C1418', '#D85448', 'blades']
       ];
 
-      return (data.results || [])
-        .filter((item) => item.overview && !exSet.has(`tmdb-${endpoint}-${item.id}`))
-        .slice(0, 8)
-        .map((item, idx) => {
-          const name = item.title || item.name || 'Untitled';
-          const dateStr = item.release_date || item.first_air_date || '';
-          const year = parseInt(dateStr.slice(0, 4), 10) || 2024;
-          const vote = (item.vote_average || 7.6).toFixed(1);
-          const votes = item.vote_count || 0;
-          const audPct = Math.min(97, Math.round((item.vote_average || 7.6) * 10.5));
-          const pal = palettes[idx % palettes.length];
-          const titleObj = {
-            id: `tmdb-${endpoint}-${item.id}`,
-            tmdbId: item.id,
-            isLiveTmdb: true,
-            title: name,
-            year,
-            type: isAnime ? 'anime' : (isSeries ? 'series' : 'movie'),
-            origin: isAnime ? 'anime' : (context.origin !== 'any' ? context.origin : 'western'),
-            runtime: isSeries ? 48 : 122,
-            runtimeLabel: isSeries ? 'Series · Live Web Pick' : 'Feature Film · Live Web',
-            creator: 'Live TMDB Discovery',
-            genres: [context.mood !== 'any' ? context.mood : 'Top Rated'],
-            moods: [context.mood !== 'any' ? context.mood : 'crime'],
-            rating: vote,
-            audiencePct: audPct,
-            voteCount: votes,
-            language: (item.original_language || 'en').toUpperCase(),
-            hook: item.overview.length > 155 ? item.overview.slice(0, 152).trim() + '…' : item.overview,
-            overview: item.overview,
-            publicSays: `Live public score: ${vote}/10 across ${votes.toLocaleString()} viewer votes on TMDB (${audPct}% positive audience consensus).`,
-            whyTags: ['Fresh from live web search', `${votes.toLocaleString()} public votes`],
-            posterUrl: item.backdrop_path ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}` : (item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null),
-            poster: { bg: pal[0], accent: pal[1], ink: '#F5F0E8', motif: pal[2] },
-            dna: { ...profile.dna }
-          };
-          return {
-            title: titleObj,
-            rawScore: 0.92,
-            matchPct: Math.min(97, Math.round(78 + (item.vote_average || 7.5) * 2.1)),
-            explanation: `Pulled live from TMDB matching your ${context.mood !== 'any' ? context.mood : 'calibrated'} vibe (${vote}/10 from ${votes.toLocaleString()} votes).`
-          };
+      async function fetchEndpoint(endpoint) {
+        const isSeries = endpoint === 'tv';
+        const params = new URLSearchParams({
+          sort_by: 'vote_average.desc',
+          'vote_count.gte': context.origin === 'indian' ? '40' : isSeries ? '120' : '250',
+          'vote_average.gte': '7.1',
+          page: String(Math.floor(Math.random() * 2) + 1)
         });
+
+        if (profile.minYear) {
+          params.set(isSeries ? 'first_air_date.gte' : 'primary_release_date.gte', `${profile.minYear}-01-01`);
+        }
+
+        if (isAnime) {
+          params.set('with_genres', '16');
+          params.set('with_origin_country', 'JP');
+        } else {
+          const gMap = isSeries ? moodGenresTv : moodGenresMovie;
+          if (context.mood && context.mood !== 'any' && gMap[context.mood]) {
+            params.set('with_genres', gMap[context.mood]);
+          } else if (profile.dna.pace >= 7.5 && profile.dna.intensity >= 7.5) {
+            // Bias open-ended discovery toward user's high-intensity/thriller DNA
+            params.set('with_genres', isSeries ? '80|9648|10759|10765|18' : '53|80|9648|28|878|18');
+          }
+          if (context.origin === 'indian') params.set('with_origin_country', 'IN');
+          else if (context.origin === 'western') params.set('with_origin_country', 'US|GB');
+          else if (context.origin === 'intl') params.set('with_origin_country', 'KR|JP|ES|FR|DE');
+        }
+
+        const res = await tmdbFetch(`https://api.themoviedb.org/3/discover/${endpoint}?${params.toString()}`, apiKey);
+        if (!res || !res.ok) return [];
+        const data = await res.json();
+        return (data.results || []).map((item) => ({ item, endpoint, isSeries }));
+      }
+
+      const batches = await Promise.all(endpoints.map(fetchEndpoint));
+      const combined = batches.flat();
+
+      const scoredPicks = [];
+      const seenKeys = new Set();
+
+      for (let idx = 0; idx < combined.length; idx++) {
+        const { item, endpoint, isSeries } = combined[idx];
+        const id = `tmdb-${endpoint}-${item.id}`;
+        if (!item.overview || exSet.has(id)) continue;
+
+        const name = item.title || item.name || 'Untitled';
+        const dateStr = item.release_date || item.first_air_date || '';
+        const year = parseInt(dateStr.slice(0, 4), 10) || 2024;
+        const normKey = `${name.toLowerCase().replace(/[^a-z0-9]/g, '')}-${year}`;
+        if (seenKeys.has(normKey) || localTitles.has(normKey)) continue;
+        seenKeys.add(normKey);
+
+        const meta = inferTmdbMetadata(item, context, isSeries, isAnime);
+        const vote = (item.vote_average || 7.6).toFixed(1);
+        const votes = item.vote_count || 0;
+        const audPct = Math.min(97, Math.round((item.vote_average || 7.6) * 10.5));
+        const pal = palettes[idx % palettes.length];
+
+        const titleObj = {
+          id,
+          tmdbId: item.id,
+          isLiveTmdb: true,
+          title: name,
+          year,
+          type: isAnime ? 'anime' : (isSeries ? 'series' : 'movie'),
+          origin: meta.origin,
+          runtime: isSeries ? 48 : 122,
+          runtimeLabel: isSeries ? 'Series · Live Web Pick' : 'Feature Film · Live Web',
+          creator: 'Live TMDB · Taste DNA Ranked',
+          genres: meta.genres,
+          moods: meta.moods,
+          rating: vote,
+          audiencePct: audPct,
+          voteCount: votes,
+          language: (item.original_language || 'en').toUpperCase(),
+          hook: item.overview.length > 155 ? item.overview.slice(0, 152).trim() + '…' : item.overview,
+          overview: item.overview,
+          publicSays: `Live public score: ${vote}/10 across ${votes.toLocaleString()} viewer votes on TMDB (${audPct}% positive audience consensus).`,
+          whyTags: ['Ranked by your Taste DNA', `${votes.toLocaleString()} public votes`],
+          posterUrl: item.backdrop_path
+            ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}`
+            : (item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : null),
+          poster: { bg: pal[0], accent: pal[1], ink: '#F5F0E8', motif: pal[2] },
+          dna: meta.dna
+        };
+
+        liveTitleRegistry.set(id, titleObj);
+        scoredPicks.push(scoreTitle(titleObj, profile, context));
+      }
+
+      return scoredPicks
+        .sort((a, b) => b.rawScore - a.rawScore)
+        .slice(0, 12);
     } catch {
       return [];
     }
