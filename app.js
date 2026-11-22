@@ -431,20 +431,33 @@
         </div>
       `;
 
-      if (state.profile.tmdbApiKey && !t.posterUrl) {
-        E.fetchTmdbPoster(t, state.profile.tmdbApiKey).then((url) => {
-          const frame = document.getElementById('pick-poster-frame');
+      function attachTmdbPoster(frameId, titleObj) {
+        if (!state.profile.tmdbApiKey || titleObj.posterUrl) return;
+        E.fetchTmdbPoster(titleObj, state.profile.tmdbApiKey).then((url) => {
+          const frame = document.getElementById(frameId);
           if (!url || !frame) return;
+          titleObj.posterUrl = url;
           const img = document.createElement('img');
-          img.src = url;
-          img.alt = t.title;
+          img.alt = titleObj.title;
           img.className = 'poster-photo';
+          img.onload = () => {
+            const svg = frame.querySelector('.poster-svg');
+            if (svg) svg.remove();
+          };
+          img.onerror = () => {
+            img.remove();
+            scrim.remove();
+          };
           const scrim = document.createElement('div');
           scrim.className = 'poster-photo-scrim';
-          frame.insertBefore(scrim, frame.firstChild);
-          frame.insertBefore(img, frame.firstChild);
+          const topBar = frame.querySelector('.poster-top-bar');
+          frame.insertBefore(img, topBar || null);
+          frame.insertBefore(scrim, topBar || null);
+          img.src = url;
         });
       }
+
+      attachTmdbPoster('pick-poster-frame', t);
 
       if (t.isLiveTmdb && state.profile.tmdbApiKey) {
         E.fetchTmdbReviewSnippet(t.tmdbId, t.type, state.profile.tmdbApiKey).then((rev) => {
@@ -546,7 +559,7 @@
 
         <div class="locked-card">
           <div class="poster-frame" style="height:190px">
-            ${E.renderEditorialPosterSVG(t)}
+            ${t.posterUrl ? `<img src="${escapeHtml(t.posterUrl)}" alt="${escapeHtml(t.title)}" class="poster-photo" /><div class="poster-photo-scrim"></div>` : E.renderEditorialPosterSVG(t)}
             <div class="poster-top-bar">
               <span class="match-badge">${state.lockedPick.matchPct}% Match</span>
               <span class="type-badge">${escapeHtml(t.runtimeLabel)}</span>

@@ -229,13 +229,14 @@
     const excludeSet = new Set(excludeIds);
     const seenOrVetoed = new Set(Object.keys(profile.ratings));
 
-    function filterPool(relaxOrigin, relaxMood) {
+    function filterPool(relaxOrigin, relaxMood, relaxFormat) {
+      const explicitNonEnOrigin = context.origin === 'indian' || context.origin === 'intl' || context.format === 'anime';
       return window.CUED_CATALOG.filter((t) => {
         if (excludeSet.has(t.id)) return false;
         if (watchlistOnly) return profile.watchlist.includes(t.id);
         if (seenOrVetoed.has(t.id)) return false;
-        if (context.format && context.format !== 'any' && t.type !== context.format) return false;
-        if (!profile.allowSubtitles && t.language !== 'EN') return false;
+        if (!relaxFormat && context.format && context.format !== 'any' && t.type !== context.format) return false;
+        if (!profile.allowSubtitles && !explicitNonEnOrigin && t.language !== 'EN') return false;
         if (profile.minYear && t.year < profile.minYear) return false;
         if (!relaxOrigin && context.origin && context.origin !== 'any') {
           if (t.origin !== context.origin) return false;
@@ -248,14 +249,22 @@
     }
 
     let relaxedNote = null;
-    let pool = filterPool(false, false);
+    let pool = filterPool(false, false, false);
 
-    if (pool.length < 2 && !watchlistOnly && context.origin !== 'any') {
-      pool = filterPool(true, false);
-      if (pool.length > 0) relaxedNote = 'Widened region slightly to keep your match quality high.';
+    if (pool.length === 0 && !watchlistOnly && context.mood && context.mood !== 'any') {
+      pool = filterPool(false, true, false);
+      if (pool.length > 0) relaxedNote = 'Relaxed mood filter to keep your region & format.';
     }
-    if (pool.length < 1 && !watchlistOnly) {
-      pool = filterPool(true, true);
+    if (pool.length === 0 && !watchlistOnly && context.format && context.format !== 'any') {
+      pool = filterPool(false, true, true);
+      if (pool.length > 0) relaxedNote = 'Expanded format to keep your selected region.';
+    }
+    if (pool.length === 0 && !watchlistOnly && context.origin && context.origin !== 'any') {
+      pool = filterPool(true, false, false);
+      if (pool.length > 0) relaxedNote = 'No unseen titles left in that region — widened region.';
+    }
+    if (pool.length === 0 && !watchlistOnly) {
+      pool = filterPool(true, true, true);
       relaxedNote = 'Showing your highest-scoring unseen matches overall.';
     }
 
@@ -316,17 +325,43 @@
       </svg>`;
   }
 
+  async function tmdbFetch(url, apiKey) {
+    const key = (apiKey || '').trim();
+    if (!key) return null;
+    const isBearer = key.includes('.') || key.length > 40;
+    if (isBearer) {
+      return fetch(url, {
+        headers: { Authorization: `Bearer ${key}`, accept: 'application/json' }
+      });
+    }
+    const sep = url.includes('?') ? '&' : '?';
+    return fetch(`${url}${sep}api_key=${encodeURIComponent(key)}`);
+  }
+
   async function fetchTmdbPoster(title, apiKey) {
-    if (!apiKey) return null;
+    if (!apiKey || !apiKey.trim()) return null;
     try {
       const cache = JSON.parse(localStorage.getItem(POSTER_CACHE_KEY) || '{}');
       if (cache[title.id]) return cache[title.id];
       const endpoint = title.type === 'movie' ? 'movie' : 'tv';
-      const url = `https://api.themoviedb.org/3/search/${endpoint}?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(title.title)}&year=${title.year}`;
-      const res = await fetch(url);
-      if (!res.ok) return null;
-      const data = await res.json();
-      const hit = data.results && data.results[0];
+      const yearParam = title.type === 'movie' ? `year=${title.year}` : `first_air_date_year=${title.year}`;
+      let res = await tmdbFetch(
+        `https://api.themoviedb.org/3/search/${endpoint}?query=${encodeURIComponent(title.title)}&${yearParam}`,
+        apiKey
+      );
+      if (!res || !res.ok) return null;
+      let data = await res.json();
+      let hit = data.results && data.results[0];
+      if (!hit) {
+        res = await tmdbFetch(
+          `https://api.themoviedb.org/3/search/${endpoint}?query=${encodeURIComponent(title.title)}`,
+          apiKey
+        );
+        if (res && res.ok) {
+          data = await res.json();
+          hit = data.results && data.results[0];
+        }
+      }
       const path = hit && (hit.backdrop_path || hit.poster_path);
       if (!path) return null;
       const imgUrl = `https://image.tmdb.org/t/p/w780${path}`;
@@ -340,7 +375,7 @@
 
   // Live Internet Catalog Discovery via TMDB API (optional free key in Settings)
   async function discoverLiveFromTmdb(profile, context, excludeIds = []) {
-    const apiKey = profile.tmdbApiKey;
+    const apiKey = (profile.tmdbApiKey || '').trim();
     if (!apiKey) return [];
     try {
       const isAnime = context.format === 'anime';
@@ -365,7 +400,6 @@
       };
 
       const params = new URLSearchParams({
-        api_key: apiKey,
         sort_by: 'vote_average.desc',
         'vote_count.gte': context.origin === 'indian' ? '60' : '250',
         'vote_average.gte': '7.2',
@@ -385,8 +419,8 @@
         else if (context.origin === 'intl') params.set('with_origin_country', 'KR|JP|ES|FR|DE');
       }
 
-      const res = await fetch(`https://api.themoviedb.org/3/discover/${endpoint}?${params.toString()}`);
-      if (!res.ok) return [];
+      const res = await tmdbFetch(`https://api.themoviedb.org/3/discover/${endpoint}?${params.toString()}`, apiKey);
+      if (!res || !res.ok) return [];
       const data = await res.json();
       const exSet = new Set([...excludeIds, ...Object.keys(profile.ratings)]);
       const palettes = [
@@ -448,8 +482,8 @@
     if (!apiKey || !tmdbId) return null;
     try {
       const endpoint = type === 'movie' ? 'movie' : 'tv';
-      const res = await fetch(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}/reviews?api_key=${encodeURIComponent(apiKey)}`);
-      if (!res.ok) return null;
+      const res = await tmdbFetch(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}/reviews`, apiKey);
+      if (!res || !res.ok) return null;
       const data = await res.json();
       const first = data.results && data.results.find((r) => r.content && r.content.length > 40);
       if (!first) return null;
